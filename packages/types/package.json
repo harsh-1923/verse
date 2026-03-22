@@ -1,0 +1,16 @@
+{
+  "name": "@verse/types",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@verse/tsconfig": "workspace:*",
+    "typescript": "^5.5.0"
+  }
+}
