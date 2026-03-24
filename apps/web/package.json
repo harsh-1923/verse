@@ -11,16 +11,27 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@convex-dev/auth": "^0.0.80",
+    "@hocuspocus/provider": "^3.4.4",
+    "@tiptap/extension-collaboration": "^3.20.4",
+    "@tiptap/extension-collaboration-cursor": "^3.0.0",
+    "@tiptap/markdown": "^3.20.4",
+    "@tiptap/pm": "^3.20.4",
+    "@tiptap/react": "^3.20.4",
+    "@tiptap/starter-kit": "^3.20.4",
+    "convex": "^1.34.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "y-prosemirror": "^1.3.0",
+    "yjs": "^13.6.0"
   },
   "devDependencies": {
-    "@verse/eslint-config": "workspace:*",
-    "@verse/tsconfig": "workspace:*",
-    "@verse/types": "workspace:*",
     "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@verse/eslint-config": "workspace:*",
+    "@verse/tsconfig": "workspace:*",
+    "@verse/types": "workspace:*",
     "@vitejs/plugin-react": "^4.3.0",
     "eslint": "^9.0.0",
     "tailwindcss": "^4.0.0",

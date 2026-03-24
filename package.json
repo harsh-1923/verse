@@ -7,7 +7,10 @@
     "build": "pnpm -r run build",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
-    "prepare": "husky"
+    "prepare": "husky",
+    "services": "docker compose up --build",
+    "services:down": "docker compose down",
+    "services:logs": "docker compose logs -f"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
