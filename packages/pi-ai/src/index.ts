@@ -4,8 +4,9 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createGroq } from '@ai-sdk/groq'
 import type { LanguageModel } from 'ai'
+import type { Provider } from '@verse/types'
 
-export type Provider = 'openai' | 'anthropic' | 'google' | 'groq' | 'litellm'
+export type { Provider }
 
 export interface StreamSimpleOptions {
   provider: Provider

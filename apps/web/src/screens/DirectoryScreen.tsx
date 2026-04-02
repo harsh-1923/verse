@@ -8,7 +8,9 @@ import {
   useDefaultLayout,
 } from "react-resizable-panels";
 import { anyApi } from "convex/server";
-import { Plus, Settings } from "lucide-react";
+import { Plus, Settings, Bot } from "lucide-react";
+import { AgentDialog } from "../components/CreateAgentDialog";
+import type { AgentData } from "../components/CreateAgentDialog";
 import {
   Tooltip,
   TooltipTrigger,
@@ -24,8 +26,11 @@ interface Doc {
   updatedAt: number;
 }
 
+type AgentDef = AgentData;
+
 const DirectoryList = ({ activeDocId }: { activeDocId?: string }) => {
   const docs = useQuery(anyApi.documents.listDocuments) as Doc[] | undefined;
+  const agents = useQuery(anyApi.agents.listAgents) as AgentDef[] | undefined;
   const createDocument = useMutation(anyApi.documents.createDocument);
 
   return (
@@ -57,6 +62,12 @@ const DirectoryList = ({ activeDocId }: { activeDocId?: string }) => {
 
       {/* Document list */}
       <div className="flex-1 overflow-auto">
+        <div className="px-1.5 pb-1.5">
+          <p className="text-xs font-semibold text-[#8fa0b1] uppercase tracking-wider">
+            Documents
+          </p>
+        </div>
+
         {docs === undefined && (
           <p className="p-1.5 text-sm text-[#6b7785]">Loading...</p>
         )}
@@ -89,6 +100,53 @@ const DirectoryList = ({ activeDocId }: { activeDocId?: string }) => {
             })}
           </div>
         )}
+
+        {/* Agents section */}
+        <div className="mt-4">
+          <div className="flex items-center justify-between px-1.5 pb-1.5">
+            <p className="text-xs font-semibold text-[#8fa0b1] uppercase tracking-wider">
+              Agents
+            </p>
+            <AgentDialog>
+              <button className="flex items-center justify-center p-0.5 rounded hover:bg-[#eef2f6] transition-colors">
+                <Plus className="size-3.5 text-[#8fa0b1]" />
+              </button>
+            </AgentDialog>
+          </div>
+
+          {agents === undefined && (
+            <p className="p-1.5 text-sm text-[#6b7785]">Loading...</p>
+          )}
+
+          {agents?.length === 0 && (
+            <p className="p-1.5 text-sm text-[#6b7785]">No agents yet.</p>
+          )}
+
+          {agents && agents.length > 0 && (
+            <div className="flex flex-col">
+              {agents.map((agent) => (
+                <AgentDialog key={agent._id} agent={agent}>
+                  <button className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#eef2f6] transition-colors group w-full text-left">
+                    <Bot className="size-4 text-[#f98047] shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-[450] leading-[1.2] truncate text-[#6b7785]">
+                        {agent.name}
+                      </p>
+                      <p className="text-xs text-[#8fa0b1] truncate">
+                        @{agent.tag}
+                        {agent.builtIn && (
+                          <span className="ml-1.5 text-[10px] font-medium text-[#f98047]">
+                            built-in
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </button>
+                </AgentDialog>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

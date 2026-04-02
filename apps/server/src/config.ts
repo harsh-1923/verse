@@ -6,4 +6,5 @@ export const config = {
   convexServiceKey: process.env.CONVEX_SERVICE_KEY ?? '',
   convexAdminKey: process.env.CONVEX_ADMIN_KEY ?? '',
   allowedOrigin: process.env.ALLOWED_ORIGIN ?? '*',
+  encryptionKey: process.env.ENCRYPTION_KEY ?? '',
 }

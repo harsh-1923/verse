@@ -11,7 +11,7 @@ import {
 } from "react-resizable-panels";
 import { anyApi } from "convex/server";
 import { VerseEditor } from "@/components/verse-editor/index";
-import { ChatPanel } from "@/components/ChatPanel";
+import { AgentPanel } from "@/components/AgentPanel";
 import { TabBar } from "@/components/TabBar";
 import { appActor } from "@/store";
 
@@ -101,7 +101,7 @@ export const DocumentScreen = () => {
       </Panel>
       <Separator className="w-[4px] hover:bg-[#ebeef0] transition-colors cursor-col-resize" />
       <Panel id="chat" minSize="20%">
-        <ChatPanel />
+        <AgentPanel docId={id} token={token ?? undefined} />
       </Panel>
     </Group>
   );

@@ -1,8 +1,10 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useQuery, useMutation } from 'convex/react'
 import { anyApi } from 'convex/server'
 import type { AgentInvokeRequest, AgentInvokeChunk, DocId } from '@verse/types'
+import { AgentDialog } from './CreateAgentDialog'
+import { Plus } from 'lucide-react'
 
 function stripToolBlocks(text: string): string {
   let result = text.replace(/```tool[\s\S]*?```/g, '')
@@ -14,52 +16,49 @@ function stripToolBlocks(text: string): string {
 interface AgentPanelProps {
   docId: string
   token?: string
-  authorName?: string
 }
 
-interface AgentMessage {
+interface EnrichedMessage {
   _id: string
   docId: string
-  role: 'user' | 'assistant'
   content: string
-  authorName?: string
+  authorId: string
+  authorType: 'user' | 'agent'
+  authorName: string
   timestamp: number
+}
+
+interface AgentDef {
+  _id: string
+  name: string
+  tag: string
+  description: string
+  avatarUrl?: string
 }
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3000'
 
-const PROVIDERS = ['openai', 'anthropic', 'google', 'groq', 'litellm'] as const
-type Provider = (typeof PROVIDERS)[number]
-
-const MODELS: Record<Provider, string[]> = {
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-3-5'],
-  google: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash'],
-  groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
-  litellm: [],
-}
-
-type AgentName = 'jot' | 'verse'
-
-function parseAgentMention(text: string): AgentName | null {
-  const match = text.match(/^@(jot|verse)\b/i)
-  if (!match) return null
-  return match[1]!.toLowerCase() as AgentName
-}
-
-export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
-  const [provider, setProvider] = useState<Provider>('openai')
-  const [model, setModel] = useState(MODELS.openai[0])
-  const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
+export const AgentPanel = ({ docId, token }: AgentPanelProps) => {
   const [prompt, setPrompt] = useState('')
   const [streamingContent, setStreamingContent] = useState<string | null>(null)
+  const [streamingAgentName, setStreamingAgentName] = useState<string>('Agent')
   const [loading, setLoading] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
-  const history = useQuery(anyApi.documents.getAgentHistory, { docId }) as AgentMessage[] | undefined
-  const appendMessage = useMutation(anyApi.documents.appendAgentMessage)
+  const history = useQuery(anyApi.documents.getMessageHistory, { docId }) as EnrichedMessage[] | undefined
+  const appendMessage = useMutation(anyApi.documents.appendMessage)
+  const agents = useQuery(anyApi.agents.listAgents) as AgentDef[] | undefined
+
+  const agentTagMap = useMemo(() => {
+    const map = new Map<string, AgentDef>()
+    if (agents) {
+      for (const agent of agents) {
+        map.set(agent.tag.toLowerCase(), agent)
+      }
+    }
+    return map
+  }, [agents])
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -69,10 +68,14 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
     scrollToBottom()
   }, [history, streamingContent, scrollToBottom])
 
-  const handleProviderChange = useCallback((p: Provider) => {
-    setProvider(p)
-    setModel(MODELS[p][0] ?? '')
-  }, [])
+  const parseAgentMention = useCallback(
+    (text: string): AgentDef | null => {
+      const match = text.match(/^@(\S+)\b/i)
+      if (!match) return null
+      return agentTagMap.get(match[1]!.toLowerCase()) ?? null
+    },
+    [agentTagMap],
+  )
 
   const handleSubmit = useCallback(async (e: FormEvent) => {
     e.preventDefault()
@@ -82,16 +85,17 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
     setPrompt('')
 
     try {
-      await appendMessage({ docId, role: 'user', content: text, authorName: authorName ?? 'You' })
+      await appendMessage({ docId, content: text })
     } catch (_e) {
       void _e
     }
 
-    const agentName = parseAgentMention(text)
-    if (!agentName) return
+    const agent = parseAgentMention(text)
+    if (!agent) return
 
     setLoading(true)
     setStreamingContent('')
+    setStreamingAgentName(agent.name)
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -100,13 +104,10 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
       const body: AgentInvokeRequest = {
         docId: docId as DocId,
         prompt: text,
-        agentName,
-        provider,
-        model,
-        apiKey,
-        ...(provider === 'litellm' && baseUrl ? { baseUrl } : {}),
+        agentId: agent._id,
       }
 
+      console.log('[agent:request]', body)
       const res = await fetch(`${SERVER_URL}/agent/invoke`, {
         method: 'POST',
         headers: {
@@ -117,6 +118,7 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
         signal: controller.signal,
       })
 
+      console.log('[agent:response]', { status: res.status, ok: res.ok })
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => '')
         throw new Error(`Server error ${res.status}: ${errText}`)
@@ -141,6 +143,7 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
 
           try {
             const chunk = JSON.parse(raw) as AgentInvokeChunk
+            console.log('[agent:chunk]', chunk)
             if (chunk.type === 'token') {
               setStreamingContent(prev => (prev ?? '') + chunk.content)
             }
@@ -150,89 +153,47 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
         }
       }
     } catch (err) {
+      console.error('[agent:error]', err)
       if ((err as Error).name !== 'AbortError') {
         const msg = err instanceof Error ? err.message : String(err)
-        setStreamingContent(`⚠️ ${msg}`)
+        setStreamingContent(`\u26a0\ufe0f ${msg}`)
       }
     } finally {
       setLoading(false)
       abortRef.current = null
     }
-  }, [prompt, loading, docId, provider, model, apiKey, baseUrl, token, authorName, appendMessage])
+  }, [prompt, loading, docId, token, appendMessage, parseAgentMention])
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
   }, [])
 
   const messages = history ?? []
+  const agentTags = agents?.map((a) => `@${a.tag}`).join(', ') ?? ''
 
   return (
     <div className="flex flex-col h-full bg-[#f9fafb]" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <details className="px-6 py-3 border-b border-[#e7ecf1] group bg-white">
-        <summary className="text-xs font-semibold text-[#8fa0b1] cursor-pointer outline-none list-none flex items-center gap-1 hover:text-[#1a1c1d] transition-colors">
-          <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-          Configure AI
-        </summary>
-        <div className="pt-3 space-y-2">
-          <div className="flex gap-2">
-            <select
-              value={provider}
-              onChange={e => handleProviderChange(e.target.value as Provider)}
-              className="flex-1 text-xs bg-white border border-[#e7ecf1] rounded-md px-2 py-1.5 text-[#1a1c1d] focus:outline-none focus:border-[#8fa0b1]"
-            >
-              {PROVIDERS.map(p => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-            {provider === 'litellm' ? (
-              <input
-                type="text"
-                value={model}
-                onChange={e => setModel(e.target.value)}
-                placeholder="Model name"
-                className="flex-1 text-xs bg-white border border-[#e7ecf1] rounded-md px-2 py-1.5 text-[#1a1c1d] placeholder-[#8fa0b1] focus:outline-none focus:border-[#8fa0b1]"
-              />
-            ) : (
-              <select
-                value={model}
-                onChange={e => setModel(e.target.value)}
-                className="flex-1 text-xs bg-white border border-[#e7ecf1] rounded-md px-2 py-1.5 text-[#1a1c1d] focus:outline-none focus:border-[#8fa0b1]"
-              >
-                {MODELS[provider].map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder="API Key"
-            className="w-full text-xs bg-white border border-[#e7ecf1] rounded-md px-2 py-1.5 text-[#1a1c1d] placeholder-[#8fa0b1] focus:outline-none focus:border-[#8fa0b1]"
-          />
-          {provider === 'litellm' && (
-            <input
-              type="text"
-              value={baseUrl}
-              onChange={e => setBaseUrl(e.target.value)}
-              placeholder="Base URL (e.g. http://localhost:4000/v1)"
-              className="w-full text-xs bg-white border border-[#e7ecf1] rounded-md px-2 py-1.5 text-[#1a1c1d] placeholder-[#8fa0b1] focus:outline-none focus:border-[#8fa0b1]"
-            />
-          )}
-          <p className="text-[11px] text-[#8fa0b1]">Mention <code className="bg-[#f0f2f4] px-1 rounded">@jot</code> or <code className="bg-[#f0f2f4] px-1 rounded">@verse</code> to invoke an agent.</p>
-        </div>
-      </details>
-
+      <div className="flex items-center justify-between px-6 py-3 border-b border-[#e7ecf1] bg-white">
+        <span className="text-sm font-semibold text-[#1a1c1d]">Chat</span>
+        <AgentDialog>
+          <button className="flex items-center gap-1.5 text-xs font-medium text-[#6b7785] hover:text-[#1a1c1d] transition-colors">
+            <Plus size={14} />
+            New Agent
+          </button>
+        </AgentDialog>
+      </div>
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
         {messages.length === 0 && !streamingContent && (
           <p className="text-[13px] text-[#8fa0b1] text-center pt-8">
-            Type <code className="bg-[#f0f2f4] px-1 rounded text-[12px]">@jot</code> or <code className="bg-[#f0f2f4] px-1 rounded text-[12px]">@verse</code> to invoke an agent.
+            {agentTags
+              ? <>Mention {agentTags} to invoke an agent.</>
+              : <>No agents configured. Create one in settings.</>
+            }
           </p>
         )}
-        {messages.map((msg: AgentMessage) => (
+        {messages.map((msg: EnrichedMessage) => (
           <div key={msg._id} className="flex gap-3">
-            {msg.role === 'user' ? (
+            {msg.authorType === 'user' ? (
               <div className="w-5 h-5 rounded-full bg-[#bfe6d1] shrink-0 flex items-center justify-center text-[10px] font-semibold text-[#1a1c1d]">
                 {(msg.authorName ?? 'U')[0]?.toUpperCase()}
               </div>
@@ -246,11 +207,11 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[14px] font-semibold text-[#1a1c1d]">
-                  {msg.role === 'user' ? (msg.authorName ?? 'You') : (msg.authorName ?? 'Jot')}
+                  {msg.authorName}
                 </span>
               </div>
               <div className={`text-[15px] leading-snug whitespace-pre-wrap break-words ${
-                msg.role === 'user'
+                msg.authorType === 'user'
                   ? 'text-[#1a1c1d]'
                   : 'bg-white rounded-lg p-3 text-[14px] text-[#585d62] border border-[#e7ecf1] shadow-sm mt-2'
               }`}>
@@ -269,7 +230,7 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[14px] font-semibold text-[#1a1c1d]">Jot</span>
+                <span className="text-[14px] font-semibold text-[#1a1c1d]">{streamingAgentName}</span>
               </div>
               <div className="bg-white rounded-lg p-3 text-[14px] text-[#585d62] border border-[#e7ecf1] shadow-sm mt-2 whitespace-pre-wrap break-words">
                 {stripToolBlocks(streamingContent)}
@@ -292,7 +253,7 @@ export function AgentPanel({ docId, token, authorName }: AgentPanelProps) {
               void handleSubmit(e as unknown as FormEvent)
             }
           }}
-          placeholder="Type a message, or @jot / @verse to invoke an agent..."
+          placeholder={agentTags ? `Type a message, or ${agentTags} to invoke an agent...` : 'Type a message...'}
           rows={1}
           disabled={loading}
           className="w-full text-[15px] bg-transparent text-[#1a1c1d] placeholder-[#8fa0b1] resize-none focus:outline-none disabled:opacity-50 min-h-[44px]"

@@ -1,14 +1,13 @@
 export type DocId = string & { readonly __brand: 'DocId' }
 export type UserId = string & { readonly __brand: 'UserId' }
+export type AgentId = string & { readonly __brand: 'AgentId' }
+
+export type Provider = 'openai' | 'anthropic' | 'google' | 'groq' | 'litellm'
 
 export interface AgentInvokeRequest {
   docId: DocId
   prompt: string
-  agentName?: string
-  provider: string
-  model: string
-  apiKey: string
-  baseUrl?: string
+  agentId: string
 }
 
 export interface AgentInvokeChunk {
@@ -39,9 +38,46 @@ export interface YjsSnapshot {
   savedAt: number
 }
 
-export interface AgentMessage {
+export interface Agent {
+  _id: string
+  name: string
+  tag: string
+  description: string
+  avatarUrl?: string
+  systemPrompt: string
+  toolIds: string[]
+  provider: Provider
+  model: string
+  builtIn: boolean
+  createdBy?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AgentKey {
+  _id: string
+  agentId: string
+  encryptedKey: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Message {
+  _id: string
   docId: DocId
-  role: 'user' | 'assistant'
   content: string
+  authorId: string
+  authorType: 'user' | 'agent'
   timestamp: number
 }
+
+export interface DocumentParticipant {
+  _id: string
+  docId: DocId
+  participantId: string
+  participantType: 'user' | 'agent'
+  joinedAt: number
+}
+
+export { TOOL_REGISTRY, ALL_TOOL_IDS } from './tools.js'
+export type { ToolRegistryEntry, ToolId } from './tools.js'

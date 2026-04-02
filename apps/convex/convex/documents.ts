@@ -42,12 +42,20 @@ export const createDocument = mutation({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx)
     if (!userId) throw new Error('Unauthenticated')
-    return ctx.db.insert('documents', {
+    const docId = await ctx.db.insert('documents', {
       title: args.title,
       ownerId: userId,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     })
+    // Add creator as participant
+    await ctx.db.insert('documentParticipants', {
+      docId,
+      participantId: userId,
+      participantType: 'user',
+      joinedAt: Date.now(),
+    })
+    return docId
   },
 })
 
@@ -69,6 +77,34 @@ export const deleteDocument = mutation({
     if (!userId) throw new Error('Unauthenticated')
     const doc = await ctx.db.get(args.docId)
     if (!doc || doc.ownerId !== userId) throw new Error('Not found')
+
+    // Cascade delete participants
+    const participants = await ctx.db
+      .query('documentParticipants')
+      .withIndex('by_doc', (q) => q.eq('docId', args.docId))
+      .collect()
+    for (const p of participants) {
+      await ctx.db.delete(p._id)
+    }
+
+    // Cascade delete messages
+    const messages = await ctx.db
+      .query('messages')
+      .withIndex('by_doc', (q) => q.eq('docId', args.docId))
+      .collect()
+    for (const m of messages) {
+      await ctx.db.delete(m._id)
+    }
+
+    // Cascade delete Yjs snapshots
+    const snapshots = await ctx.db
+      .query('yjsSnapshots')
+      .filter((q) => q.eq(q.field('docId'), args.docId))
+      .collect()
+    for (const s of snapshots) {
+      await ctx.db.delete(s._id)
+    }
+
     await ctx.db.delete(args.docId)
   },
 })
@@ -98,54 +134,74 @@ export const getYjsSnapshot = query({
   },
 })
 
-export const appendAgentMessage = mutation({
+// --- Messages ---
+
+export const appendMessage = mutation({
   args: {
     docId: v.string(),
-    role: v.union(v.literal('user'), v.literal('assistant')),
     content: v.string(),
-    authorName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx)
     if (!userId) throw new Error('Unauthenticated')
-    const user = await ctx.db.get(userId)
-    const resolvedName = user?.name ?? user?.email ?? args.authorName
-    await ctx.db.insert('agentMessages', {
+    await ctx.db.insert('messages', {
       docId: args.docId,
-      role: args.role,
       content: args.content,
-      authorName: resolvedName,
+      authorId: userId,
+      authorType: 'user',
       timestamp: Date.now(),
     })
   },
 })
 
-export const appendAgentMessageInternal = mutation({
+export const appendMessageInternal = mutation({
   args: {
     docId: v.string(),
-    role: v.union(v.literal('user'), v.literal('assistant')),
     content: v.string(),
-    authorName: v.optional(v.string()),
+    authorId: v.string(),
+    authorType: v.union(v.literal('user'), v.literal('agent')),
   },
   handler: async (ctx, args) => {
-    await ctx.db.insert('agentMessages', {
+    await ctx.db.insert('messages', {
       docId: args.docId,
-      role: args.role,
       content: args.content,
-      authorName: args.authorName,
+      authorId: args.authorId,
+      authorType: args.authorType,
       timestamp: Date.now(),
     })
   },
 })
 
-export const getAgentHistory = query({
+export const getMessageHistory = query({
   args: { docId: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity()
     if (!identity) return []
-    return ctx.db
-      .query('agentMessages')
-      .filter((q) => q.eq(q.field('docId'), args.docId))
+    const messages = await ctx.db
+      .query('messages')
+      .withIndex('by_doc', (q) => q.eq('docId', args.docId))
       .collect()
+
+    // Resolve author names
+    const enriched = await Promise.all(
+      messages.map(async (msg) => {
+        if (msg.authorType === 'user') {
+          const user = await ctx.db.get(msg.authorId as never)
+          return {
+            ...msg,
+            authorName: (user as { name?: string; email?: string } | null)?.name ??
+              (user as { name?: string; email?: string } | null)?.email ?? 'User',
+          }
+        } else {
+          const agent = await ctx.db.get(msg.authorId as never)
+          return {
+            ...msg,
+            authorName: (agent as { name?: string } | null)?.name ?? 'Agent',
+          }
+        }
+      }),
+    )
+
+    return enriched
   },
 })

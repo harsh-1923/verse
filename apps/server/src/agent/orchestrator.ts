@@ -4,17 +4,14 @@ import { runAgent, type ToolDefinition } from '@verse/pi-agent-core'
 import { authMiddleware, optionalAuth as _optionalAuth } from '../middleware/auth.js'
 import { writeToDocTool, readSectionTool, replaceRangeTool } from './tools/yjsTools.js'
 import { config } from '../config.js'
+import { decryptApiKey } from '../crypto.js'
 
 export const agentRouter: IRouter = Router()
 
 const invokeSchema = z.object({
   docId: z.string(),
   prompt: z.string(),
-  agentName: z.string().optional(),
-  provider: z.enum(['openai', 'anthropic', 'google', 'groq', 'litellm']),
-  model: z.string(),
-  apiKey: z.string(),
-  baseUrl: z.string().optional(),
+  agentId: z.string(),
 })
 
 const TOOL_FORMAT_INSTRUCTIONS = `
@@ -35,15 +32,63 @@ To call a tool, output a fenced code block tagged "tool" containing JSON with "n
 After the tool result is returned, continue your response. You may call multiple tools in sequence.
 When you are done editing the document, write a brief chat summary of what you did — do NOT repeat the full document content in the chat.`
 
-const AGENTS: Record<string, string> = {
-  jot:
-    'You are Jot, a helpful AI assistant embedded in a collaborative markdown editor. ' +
-    'You can answer questions, have conversations, and also write content into the document when asked.' +
-    TOOL_FORMAT_INSTRUCTIONS,
-  verse:
-    'You are Verse, a document assistant embedded in a collaborative markdown editor. ' +
-    'You can discuss and explain document content, and write summaries or edits into the document when asked.' +
-    TOOL_FORMAT_INSTRUCTIONS,
+// Map tool IDs to implementations
+const TOOL_MAP: Record<string, ToolDefinition<unknown, unknown>> = {
+  write_to_doc: writeToDocTool as ToolDefinition<unknown, unknown>,
+  read_section: readSectionTool as ToolDefinition<unknown, unknown>,
+  replace_range: replaceRangeTool as ToolDefinition<unknown, unknown>,
+}
+
+async function fetchAgent(agentId: string) {
+  const res = await fetch(`${config.convexUrl}/api/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      path: 'agents:getAgentInternal',
+      args: { agentId },
+      adminKey: config.convexAdminKey,
+    }),
+  })
+  if (!res.ok) return null
+  const data = (await res.json()) as { value: unknown }
+  return data.value as {
+    _id: string
+    name: string
+    tag: string
+    systemPrompt: string
+    toolIds: string[]
+    provider: string
+    model: string
+  } | null
+}
+
+async function fetchAgentKey(agentId: string): Promise<string | null> {
+  const res = await fetch(`${config.convexUrl}/api/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      path: 'agents:getAgentKeyInternal',
+      args: { agentId },
+      adminKey: config.convexAdminKey,
+    }),
+  })
+  if (!res.ok) return null
+  const data = (await res.json()) as { value: { encryptedKey: string } | null }
+  if (!data.value) return null
+  return decryptApiKey(data.value.encryptedKey)
+}
+
+function addAgentParticipant(docId: string, agentId: string): void {
+  if (!config.convexAdminKey) return
+  void fetch(`${config.convexUrl}/api/mutation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      path: 'participants:addParticipantInternal',
+      args: { docId, participantId: agentId, participantType: 'agent' },
+      adminKey: config.convexAdminKey,
+    }),
+  }).catch((_e: unknown) => { void _e })
 }
 
 agentRouter.post('/invoke', authMiddleware, async (req: Request, res: Response) => {
@@ -52,24 +97,50 @@ agentRouter.post('/invoke', authMiddleware, async (req: Request, res: Response) 
     res.status(400).json({ error: parsed.error.message })
     return
   }
-  const { docId, prompt, agentName, provider, model, apiKey, baseUrl } = parsed.data
+  const { docId, prompt, agentId } = parsed.data
 
-  const agentBase = (agentName && AGENTS[agentName]) ? AGENTS[agentName] : AGENTS['jot']!
-  const systemPrompt = `${agentBase}\n\nThe current document ID is "${docId}". Always use this exact docId in every tool call.`
+  // 1. Fetch agent definition
+  const agent = await fetchAgent(agentId)
+  if (!agent) {
+    res.status(404).json({ error: 'Agent not found' })
+    return
+  }
 
+  // 2. Fetch and decrypt API key
+  const apiKey = await fetchAgentKey(agentId)
+  if (!apiKey) {
+    res.status(400).json({ error: 'No API key configured for this agent' })
+    return
+  }
+
+  // 3. Build system prompt
+  const systemPrompt = `${agent.systemPrompt}\n${TOOL_FORMAT_INSTRUCTIONS}\n\nThe current document ID is "${docId}". Always use this exact docId in every tool call.`
+
+  // 4. Filter tools based on agent config
+  const tools = agent.toolIds
+    .map((id) => TOOL_MAP[id])
+    .filter((t): t is ToolDefinition<unknown, unknown> => t !== undefined)
+
+  // 5. Add agent as document participant
+  addAgentParticipant(docId, agentId)
+
+  // 6. Set up SSE streaming
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tools: ToolDefinition<any, any>[] = [writeToDocTool, readSectionTool, replaceRangeTool]
   const generator = runAgent({
     docId,
     systemPrompt,
     userMessage: prompt,
     tools,
-    llmOptions: { provider, model, apiKey, baseUrl, messages: [] },
+    llmOptions: {
+      provider: agent.provider as 'openai' | 'anthropic' | 'google' | 'groq' | 'litellm',
+      model: agent.model,
+      apiKey,
+      messages: [],
+    },
   })
 
   let closed = false
@@ -94,18 +165,18 @@ agentRouter.post('/invoke', authMiddleware, async (req: Request, res: Response) 
     res.write('data: [DONE]\n\n')
     res.end()
     const chatContent = fullResponse.replace(/```tool[\s\S]*?```/g, '').trim()
-    void persistAgentReply(docId, chatContent, agentName ?? 'jot')
+    void persistAgentReply(docId, chatContent, agentId)
   }
 })
 
-function persistAgentReply(docId: string, content: string, agentName: string): Promise<void> {
+function persistAgentReply(docId: string, content: string, agentId: string): Promise<void> {
   if (!content || !config.convexAdminKey) return Promise.resolve()
   return fetch(`${config.convexUrl}/api/mutation`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      path: 'documents:appendAgentMessageInternal',
-      args: { docId, role: 'assistant', content, authorName: agentName },
+      path: 'documents:appendMessageInternal',
+      args: { docId, content, authorId: agentId, authorType: 'agent' },
       adminKey: config.convexAdminKey,
     }),
   })
