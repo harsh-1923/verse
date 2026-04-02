@@ -7,7 +7,10 @@
     "build": "pnpm -r run build",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",
-    "prepare": "husky"
+    "prepare": "husky",
+    "services": "podman compose up --build",
+    "services:down": "podman compose down",
+    "services:logs": "podman compose logs -f"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

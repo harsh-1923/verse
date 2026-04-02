@@ -1,0 +1,7 @@
+{
+  "extends": "@verse/tsconfig/node.json",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

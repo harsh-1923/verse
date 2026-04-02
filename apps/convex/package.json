@@ -1,0 +1,19 @@
+{
+  "name": "@verse/convex",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "convex": "^1.17.0",
+    "@auth/core": "^0.37.0",
+    "@convex-dev/auth": "^0.0.80"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
