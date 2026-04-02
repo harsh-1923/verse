@@ -8,6 +8,7 @@ const getJWKS = () =>
   createRemoteJWKSet(new URL(`${config.convexJwksUrl}/.well-known/jwks.json`))
 
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const modifiedDocs = new Set<string>()
 
 async function persistSnapshot(documentName: string, document: Y.Doc): Promise<void> {
   if (!config.convexAdminKey) return
@@ -61,6 +62,7 @@ export const hocuspocusServer = new Hocuspocus({
   },
 
   async onChange({ document, documentName }: onChangePayload) {
+    modifiedDocs.add(documentName)
     const existing = debounceTimers.get(documentName)
     if (existing) clearTimeout(existing)
     const timer = setTimeout(() => {
@@ -76,6 +78,8 @@ export const hocuspocusServer = new Hocuspocus({
       clearTimeout(existing)
       debounceTimers.delete(documentName)
     }
+    if (!modifiedDocs.has(documentName)) return
+    modifiedDocs.delete(documentName)
     await persistSnapshot(documentName, document)
   },
 })

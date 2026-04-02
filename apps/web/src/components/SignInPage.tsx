@@ -1,6 +1,6 @@
 import { useAuthActions } from "@convex-dev/auth/react"
 
-export function SignInPage() {
+export const SignInPage = ({ redirectTo }: { redirectTo?: string }) => {
   const { signIn } = useAuthActions()
 
   return (
@@ -11,7 +11,7 @@ export function SignInPage() {
           <p className="mt-2 text-[16px] text-[#8fa0b1]">Collaborative writing with AI</p>
         </div>
         <button
-          onClick={() => void signIn("google")}
+          onClick={() => void signIn("google", redirectTo ? { redirectTo } : undefined)}
           className="w-full flex items-center justify-center gap-3 rounded-xl border border-[#e7ecf1] bg-white px-5 py-3 text-[14px] font-medium text-[#1a1c1d] shadow-sm hover:bg-[#f9fafb] transition-colors"
         >
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">

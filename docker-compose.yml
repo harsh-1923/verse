@@ -25,36 +25,5 @@ services:
       convex-backend:
         condition: service_healthy
 
-  server:
-    build:
-      context: .
-      dockerfile: apps/server/Dockerfile
-    ports:
-      - "3000:3000"
-    environment:
-      PORT: 3000
-      CONVEX_URL: ${CONVEX_URL:-http://convex-backend:3210}
-      CONVEX_SITE_URL: ${CONVEX_SITE_URL:-http://localhost:3211}
-      CONVEX_JWKS_URL: http://convex-backend:3211
-      CONVEX_SERVICE_KEY: ${CONVEX_SERVICE_KEY}
-      CONVEX_ADMIN_KEY: ${CONVEX_ADMIN_KEY}
-      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:80}
-    depends_on:
-      convex-backend:
-        condition: service_healthy
-
-  web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        VITE_SERVER_URL: ${VITE_SERVER_URL:-http://localhost:3000}
-        VITE_SERVER_WS: ${VITE_SERVER_WS:-ws://localhost:3000}
-        VITE_CONVEX_URL: ${VITE_CONVEX_URL:-http://localhost:3210}
-    ports:
-      - "8080:80"
-    depends_on:
-      - server
-
 volumes:
   convex-data:

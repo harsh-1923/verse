@@ -1,1 +1,23 @@
 @import "tailwindcss";
+
+@layer utilities {
+  .debug {
+    outline: 1px solid red;
+  }
+
+  .debug-blue {
+    outline: 1px solid blue;
+  }
+
+  .debug-green {
+    outline: 1px solid green;
+  }
+
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
